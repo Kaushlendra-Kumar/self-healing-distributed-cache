@@ -145,7 +145,8 @@ make fuzz    # fuzz the frame decoder
 - **No consensus.** Membership is gossip-based. Split-brain is reduced (strict owner quorums, minority refusal, majority-only removal) but not eliminated. See [FAILURE_MODES](docs/FAILURE_MODES.md#network-partition).
 - **Not linearizable.** Writes are last-writer-wins by hybrid-logical-clock version, so concurrent writes from different coordinators are ordered by clocks, not real time.
 - **Partitions:** removal needs a majority of the ring to report a member dead, so
-  non-transitive partitions don't cause removals. A join *during* a partition is untested.
+  non-transitive partitions don't cause removals. All fault tests ran on one host;
+  real multi-machine networks are untested.
 - **Stale-read windows exist.** One window is between a partition starting and the isolated node noticing (up to `SHC_DEAD_AFTER`). Another is while ownership changes are still propagating by gossip.
 - **In-memory only.** If every replica of a key is lost, the key is gone, and reads report a miss.
 - **All-to-all heartbeats** cost O(n²) messages; aimed at clusters of a few to ~20 nodes.

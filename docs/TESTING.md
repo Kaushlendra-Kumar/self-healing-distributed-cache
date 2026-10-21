@@ -64,6 +64,7 @@ go test -run='^$' -fuzz=FuzzReadFrame -fuzztime=30s ./internal/protocol/
 | Clock skew, sequential writes | `TestClockSkewDoesNotReorderSequentialWrites` | A coordinator 10 s fast writes v1, dies, and a correct-clock coordinator's v2 still wins everywhere (fails if HLC observation is disabled; verified) |
 | Clock skew, TTL | `TestClockSkewShortensTTLOnFastReplica` | Pins the documented limitation: a replica 10 s ahead drops a 5 s TTL value as expired |
 | Ack implies stored | `TestCoordinatorVersionExceedsLocalCopy` | A future version already in the store cannot make an acknowledged write disappear |
+| Join during a partition | `TestJoinDuringPartition` | A node joins while another is isolated: the joiner goes active on the majority, the isolated node refuses requests, and after the heal no acknowledged write is lost, placement is exact and the healed node holds the newest values |
 | Concurrent membership changes | `TestConcurrentMembershipChangesUnderLoad` | Two joins and one crash + removal at once under writes: no acknowledged write lost, exact placement |
 
 ### Process-level end-to-end (`test/e2e`)
@@ -118,7 +119,6 @@ The demo was run against Docker Compose. Its output is in [DEMO.md](DEMO.md).
 - True one-way packet loss at the network layer. Fault injection cuts links between
   node pairs, which covers non-transitive partitions (A↮C, both reach B). A one-way
   network fault breaks TCP in both directions, so it reduces to the same case.
-- A join or removal *during* a partition.
 - Real multi-host networks (packet loss, reordering, MTU issues); only loopback and the
   Docker bridge.
 - Long-running soak tests and clusters larger than 6 nodes.

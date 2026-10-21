@@ -124,7 +124,13 @@ into one pass.
 
 ## What is not claimed
 
-Migration is **not** advertised as "zero-downtime" in general. Availability during a join
-was tested only for the scenario in the tests: one node joining a healthy cluster under
-continuous writes, with no lost acknowledged writes. Combinations such as a join
-*during* a partition, or several simultaneous joins and removals, have not been tested.
+Migration is **not** advertised as "zero-downtime" in general. The tested scenarios, all
+under continuous writes with no acknowledged write lost:
+
+- one node joining a healthy cluster;
+- two nodes joining while a third crashes and is removed;
+- a node joining while another node is isolated in a minority partition. The joiner
+  syncs from the majority, and the isolated node refuses requests and resyncs after
+  the heal.
+
+All of these ran on one host. Behaviour on real multi-host networks has not been tested.

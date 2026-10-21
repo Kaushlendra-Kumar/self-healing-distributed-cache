@@ -803,3 +803,82 @@ func TestConcurrentMembershipChangesUnderLoad(t *testing.T) {
 		}
 	}
 }
+
+// A node joins while another is cut off in a minority partition. The joiner
+// syncs from the majority and becomes active; the isolated node refuses
+// requests meanwhile and resyncs after the heal. No acknowledged write is lost
+// and every key ends exactly on its owners in the four-node ring.
+func TestJoinDuringPartition(t *testing.T) {
+	c := newCluster(t, 3, nil)
+	cl := c.client()
+	const keys = 300
+	for i := 0; i < keys; i++ {
+		mustSet(t, cl, fmt.Sprint("k", i), "0")
+	}
+	n3 := c.nodes["node-3"]
+	c.partition("node-3")
+	eventually(t, 5*time.Second, "partition detected", func() bool {
+		return !c.nodes["node-1"].Members().Routable("node-3") && n3.inMinority()
+	})
+
+	log := newWriteLog()
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for round := 1; ; round++ {
+			for i := 0; i < keys; i += 4 {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				k, v := fmt.Sprint("k", i), fmt.Sprint(round)
+				_, err := cl.Set(context.Background(), k, []byte(v), 0)
+				log.record(k, v, err)
+			}
+		}
+	}()
+
+	n4 := c.start("node-4")
+	n4.Faults().Block("node-3") // node-4 joins on the majority side
+	eventually(t, 10*time.Second, "node-4 active on the majority side", func() bool {
+		return n4.Ready() && c.nodes["node-1"].Members().Routable("node-4")
+	})
+	if resp := call(t, n3, &protocol.Message{Op: protocol.OpGet, Key: "k0"}); resp.Code != protocol.CodeMinority {
+		t.Fatalf("isolated node served a request during the join: %+v", resp)
+	}
+
+	c.heal()
+	c.waitConverged()
+	close(stop)
+	<-done
+	c.antiEntropy()
+	c.antiEntropy()
+
+	r := c.nodes["node-1"].Ring()
+	if r.Len() != 4 {
+		t.Fatalf("ring %v", r.Nodes())
+	}
+	for i := 0; i < keys; i++ {
+		k := fmt.Sprint("k", i)
+		got, found := mustGet(t, cl, k)
+		if !found {
+			t.Fatalf("%s missing", k)
+		}
+		log.check(t, k, "0", got)
+		owners := r.Owners(k, 3)
+		for id, n := range c.nodes {
+			_, has := localValue(n, k)
+			if has != slices.Contains(owners, id) {
+				t.Fatalf("%s on %s: has=%v but owners=%v", k, id, has, owners)
+			}
+		}
+		// The previously isolated node must hold the newest value, not its stale copy.
+		if slices.Contains(owners, "node-3") {
+			v3, _ := localValue(n3, k)
+			if v3 != got {
+				t.Fatalf("%s: node-3 holds %q, cluster value %q", k, v3, got)
+			}
+		}
+	}
+}

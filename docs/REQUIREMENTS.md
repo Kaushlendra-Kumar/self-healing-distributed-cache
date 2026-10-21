@@ -159,4 +159,5 @@ Each criterion was defined before implementation and is marked with how it was v
 | A19 | Healthy-cluster benchmarks complete with 0 errors | ✅ | [BENCHMARKS](BENCHMARKS.md) |
 | A20 | Clock skew does not reorder sequential writes; non-transitive partitions cause no removals; concurrent joins + removal lose no acknowledged write | ✅ | skew, non-transitive and concurrent-membership tests |
 | A21 | A node crash and restart under load cause zero client-visible errors | ✅ 0 errors / 748k ops | [BENCHMARKS](BENCHMARKS.md#behaviour-under-node-failure) |
-| A22 | Join during a partition; real multi-host network faults | ⚠️ not tested | [TESTING](TESTING.md#not-tested-known-gaps) |
+| A22 | A node joining during a partition loses no acknowledged write; the isolated node resyncs | ✅ | `TestJoinDuringPartition` |
+| A23 | Behaviour on real separate machines (packet loss, latency) and a live cloud deployment | ⚠️ pending: needs cloud VMs | [DEPLOYMENT](DEPLOYMENT.md) |
