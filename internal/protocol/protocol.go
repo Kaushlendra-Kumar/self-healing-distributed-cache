@@ -71,10 +71,10 @@ const (
 const (
 	CodeBadRequest     = "bad_request"
 	CodeTooLarge       = "too_large"
-	CodeUnavailable    = "unavailable"     // no routable owner for the key
-	CodeQuorumFailed   = "quorum_failed"   // write may be partially applied
-	CodeMinority       = "minority"        // node cannot see a majority of the ring
-	CodeNotOwner       = "not_owner"       // forwarded request reached a non-owner
+	CodeUnavailable    = "unavailable"   // no routable owner for the key
+	CodeQuorumFailed   = "quorum_failed" // write may be partially applied
+	CodeMinority       = "minority"      // node cannot see a majority of the ring
+	CodeNotOwner       = "not_owner"     // forwarded request reached a non-owner
 	CodeTimeout        = "timeout"
 	CodeInternal       = "internal"
 	CodeUnknownOp      = "unknown_op"

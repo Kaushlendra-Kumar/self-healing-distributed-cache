@@ -483,3 +483,15 @@ func (t *Table) Status() []MemberStatus {
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
+
+// ClearDeadMarks forgets every dead mark this node holds. A node calls it
+// after recovering from a minority partition: its own failure observations
+// were made while it was the isolated side, so they say more about its own
+// connectivity than about the peers it marked.
+func (t *Table) ClearDeadMarks() {
+	t.mu.Lock()
+	for _, p := range t.peers {
+		p.mark = nil
+	}
+	t.mu.Unlock()
+}
