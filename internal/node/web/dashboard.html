@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cache Cluster Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #646d78; --line: #dde1e6;
+    --ok: #1a7f37; --warn: #b26b00; --bad: #c62828; --info: #1f5fbf; --idle: #8a939e;
+    --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --card: #171b21; --text: #e6e9ed; --muted: #97a0ab; --line: #2a3038;
+      --ok: #3fb950; --warn: #d69a2d; --bad: #f05d5d; --info: #5b9bf0; --idle: #6b7480;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; background: var(--card); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .node-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .node-head strong { font-size: 16px; }
+  .badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; color: #fff; }
+  .ok { background: var(--ok); } .warn { background: var(--warn); } .bad { background: var(--bad); }
+  .info { background: var(--info); } .idle { background: var(--idle); }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0 0 10px; }
+  dt { color: var(--muted); } dd { margin: 0; font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+  .peers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .peer { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  button:hover { border-color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
+          background: var(--bg); color: var(--text); min-width: 0; flex: 1 1 140px; }
+  pre { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--line);
+        border-radius: 6px; padding: 8px; margin: 10px 0 0; max-height: 220px; overflow: auto; white-space: pre-wrap; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  #log { list-style: none; margin: 0; padding: 0; font-family: var(--mono); font-size: 12px; max-height: 300px; overflow: auto; }
+  #log li { padding: 3px 0; border-bottom: 1px solid var(--line); }
+  #log time { color: var(--muted); margin-right: 8px; }
+  code { font-family: var(--mono); font-size: 12px; }
+  .help { margin-top: 12px; }
+  .help code { display: block; margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Self-healing cache cluster</h1>
+    <span class="muted" id="served"></span>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <section class="grid" id="nodes"></section>
+
+  <div class="two">
+    <section class="card">
+      <h2>Try a key</h2>
+      <div class="row">
+        <input id="k" value="user:42" aria-label="key">
+        <input id="v" value="alice" aria-label="value">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="set">Set</button>
+        <button id="getq">Get (quorum)</button>
+        <button id="get1">Get (one)</button>
+        <button id="del">Delete</button>
+        <button id="owners">Owners</button>
+      </div>
+      <pre id="out">Results appear here.</pre>
+    </section>
+    <section class="card">
+      <h2>Events</h2>
+      <ul id="log"></ul>
+    </section>
+  </div>
+
+  <section class="card help">
+    <h2>Break it and watch it heal</h2>
+    <div class="muted">Partition and Heal are the buttons on each node. To crash and restart a node (Docker Compose):</div>
+    <code>docker compose kill node2</code>
+    <code>docker compose start node2</code>
+    <div class="muted">A killed node goes alive → suspect (1.5 s) → dead (4 s) on the others; a restarted one joins, resyncs, then turns ready.</div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const livenessClass = { alive: "ok", suspect: "warn", dead: "bad" };
+let previous = null;
+
+function nodeState(n) {
+  if (n.error) return { label: "unreachable", cls: "bad" };
+  if (n.cluster.in_minority) return { label: "minority", cls: "warn" };
+  const phase = n.status ? n.status.phase : "?";
+  if (phase !== "active") return { label: phase, cls: "info" };
+  return { label: "ready", cls: "ok" };
+}
+
+function logEvent(text) {
+  const li = document.createElement("li");
+  li.innerHTML = `<time>${new Date().toLocaleTimeString()}</time>${esc(text)}`;
+  $("log").prepend(li);
+  while ($("log").children.length > 200) $("log").lastChild.remove();
+}
+
+function diff(nodes) {
+  const now = {};
+  for (const n of nodes) {
+    const views = {};
+    for (const m of (n.cluster ? n.cluster.members : [])) if (m.id !== n.id) views[m.id] = m.liveness;
+    now[n.id] = { state: nodeState(n).label, views };
+  }
+  if (previous) {
+    for (const [id, cur] of Object.entries(now)) {
+      const old = previous[id];
+      if (!old) { logEvent(`${id} appeared`); continue; }
+      if (old.state !== cur.state) logEvent(`${id}: ${old.state} → ${cur.state}`);
+      for (const [peer, l] of Object.entries(cur.views)) {
+        if (old.views[peer] && old.views[peer] !== l) logEvent(`${id} sees ${peer}: ${old.views[peer]} → ${l}`);
+      }
+    }
+    for (const id of Object.keys(previous)) if (!now[id]) logEvent(`${id} removed from the ring`);
+  }
+  previous = now;
+}
+
+function card(n) {
+  const st = nodeState(n);
+  let body;
+  if (n.error) {
+    body = `<dl><dt>admin</dt><dd>${esc(n.admin_addr)}</dd><dt>error</dt><dd>${esc(n.error)}</dd></dl>`;
+  } else {
+    const c = n.cluster, s = n.status || {}, rec = s.recovery || {}, store = s.store || {};
+    const own = c.ownership && c.ownership[n.id] != null ? (c.ownership[n.id] * 100).toFixed(1) + "%" : "–";
+    const peers = c.members.filter((m) => m.id !== n.id).map((m) =>
+      `<span class="peer"><span class="dot ${livenessClass[m.liveness] || "idle"}"></span>${esc(m.id)} ${esc(m.liveness)}</span>`).join("");
+    body = `<dl>
+        <dt>phase</dt><dd>${esc(s.phase || "?")}</dd>
+        <dt>keys</dt><dd>${store.Entries ?? "–"}</dd>
+        <dt>ownership</dt><dd>${own}</dd>
+        <dt>sees</dt><dd>${c.reachable}/${c.ring_size} ring members</dd>
+        <dt>recovery</dt><dd>${esc(rec.state || "–")}${rec.reason ? " (" + esc(rec.reason) + ")" : ""}</dd>
+      </dl>
+      <div class="peers">${peers || '<span class="muted">no peers</span>'}</div>
+      <div class="row">
+        <button data-fault="${esc(n.id)}" data-body='{"block":["*"]}'>Partition</button>
+        <button data-fault="${esc(n.id)}" data-body='{"reset":true}'>Heal</button>
+      </div>`;
+  }
+  return `<article class="card"><div class="node-head"><strong>${esc(n.id)}</strong>
+    <span class="badge ${st.cls}">${esc(st.label)}</span></div>${body}</article>`;
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("/ui/overview", { cache: "no-store" });
+    const data = await r.json();
+    const nodes = data.nodes;
+    $("served").textContent = `served by ${data.served_by}`;
+    $("nodes").innerHTML = nodes.map(card).join("");
+    const any = nodes.find((n) => n.cluster);
+    const ready = nodes.filter((n) => nodeState(n).label === "ready").length;
+    $("chips").innerHTML = any ? [
+      `${ready}/${nodes.length} ready`,
+      `RF ${any.cluster.replication_factor}`,
+      `W ${any.cluster.write_quorum}`,
+      `R ${any.cluster.read_quorum}`,
+      `${any.cluster.vnodes} vnodes`,
+    ].map((t) => `<span class="chip">${t}</span>`).join("") : "";
+    diff(nodes);
+  } catch (e) {
+    $("served").textContent = "this node is not answering: " + e.message;
+  }
+}
+
+$("nodes").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-fault]");
+  if (!b) return;
+  const r = await fetch(`/ui/faults?node=${encodeURIComponent(b.dataset.fault)}`, { method: "POST", body: b.dataset.body });
+  const res = await r.json();
+  logEvent(r.ok ? `${b.textContent.toLowerCase()} ${b.dataset.fault}` : `${b.dataset.fault}: ${res.error}`);
+  refresh();
+});
+
+async function kv(method, query = "", body) {
+  const key = encodeURIComponent($("k").value);
+  const r = await fetch(`/v1/kv/${key}${query}`, { method, body });
+  $("out").textContent = `${method} → HTTP ${r.status}\n` + JSON.stringify(await r.json(), null, 2);
+}
+$("set").onclick = () => kv("PUT", "", $("v").value);
+$("getq").onclick = () => kv("GET", "?consistency=quorum");
+$("get1").onclick = () => kv("GET");
+$("del").onclick = () => kv("DELETE");
+$("owners").onclick = async () => {
+  const r = await fetch(`/debug/ring?key=${encodeURIComponent($("k").value)}`);
+  $("out").textContent = JSON.stringify(await r.json(), null, 2);
+};
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

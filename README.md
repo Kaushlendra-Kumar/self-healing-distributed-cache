@@ -38,6 +38,7 @@ flowchart LR
 | Rebalancing | One digest/push sync engine for join, leave, removal, anti-entropy and handoff, throttled in keys/s |
 | Memory | Bounded bytes/entries, LRU or LFU eviction, TTL (lazy + sampled sweep), tombstones |
 | Operations | Structured JSON logs with request IDs, Prometheus metrics, health/readiness, admin API, fault injection |
+| Dashboard | Any node serves a live page at `/`: every member's view of the cluster, recovery state, a key tool and partition/heal buttons |
 
 ## Quick start
 
@@ -45,6 +46,7 @@ flowchart LR
 
 ```bash
 docker compose up -d --build          # data ports 7001-7003, admin 8001-8003
+open http://localhost:8001            # live dashboard: node health, liveness, keys, partition/heal
 curl -X PUT localhost:8001/v1/kv/user:42 -d alice
 curl localhost:8003/v1/kv/user:42     # any node answers; it forwards to an owner
 curl localhost:8001/cluster           # membership, liveness, ownership

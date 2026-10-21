@@ -27,6 +27,7 @@ import (
 //	GET/POST /admin/faults  fault injection (only if SHC_ENABLE_FAULT_INJECTION)
 //	GET  /debug/pprof/      Go profiler (only if SHC_ENABLE_PPROF)
 //	GET/PUT/DELETE /v1/kv/{key}  convenience HTTP gateway to the cache
+//	GET  /                  live dashboard (see dashboard.go)
 func (n *Node) adminHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -111,6 +112,7 @@ func (n *Node) adminHandler() http.Handler {
 	mux.HandleFunc("GET /v1/kv/{key}", n.httpGet)
 	mux.HandleFunc("PUT /v1/kv/{key}", n.httpPut)
 	mux.HandleFunc("DELETE /v1/kv/{key}", n.httpDelete)
+	n.registerDashboard(mux)
 	return mux
 }
 
