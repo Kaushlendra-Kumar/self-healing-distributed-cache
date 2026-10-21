@@ -111,6 +111,7 @@ type Message struct {
 	Keys      []string              `json:"keys,omitempty"`
 	Members   []membership.Member   `json:"members,omitempty"`
 	DeadMarks []membership.DeadMark `json:"dead,omitempty"`
+	Down      []string              `json:"down,omitempty"` // peers the sender currently sees as dead
 	Target    *membership.Member    `json:"target,omitempty"`
 
 	// Response fields.

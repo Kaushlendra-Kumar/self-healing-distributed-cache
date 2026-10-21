@@ -288,6 +288,47 @@ func TestAutoRemovalRestoresReplicationFactor(t *testing.T) {
 	})
 }
 
+// writeLog tracks, per key, the last acknowledged value and the values of
+// later writes whose outcome is unknown (they returned an error, but may have
+// been applied: see CONSISTENCY_MODEL "Write semantics"). The final value
+// must be one of those; anything older means an acknowledged write was lost.
+type writeLog struct {
+	mu      sync.Mutex
+	acked   map[string]string
+	unknown map[string]map[string]bool
+}
+
+func newWriteLog() *writeLog {
+	return &writeLog{acked: map[string]string{}, unknown: map[string]map[string]bool{}}
+}
+
+func (w *writeLog) record(k, v string, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err == nil {
+		w.acked[k] = v
+		delete(w.unknown, k)
+		return
+	}
+	if w.unknown[k] == nil {
+		w.unknown[k] = map[string]bool{}
+	}
+	w.unknown[k][v] = true
+}
+
+func (w *writeLog) check(t *testing.T, k, initial, got string) {
+	t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	want, ok := w.acked[k]
+	if !ok {
+		want = initial
+	}
+	if got != want && !w.unknown[k][got] {
+		t.Fatalf("%s = %q, want %q (or a later unacknowledged write): acknowledged write lost", k, got, want)
+	}
+}
+
 func TestJoinRebalancesWithoutLosingConcurrentWrites(t *testing.T) {
 	c := newCluster(t, 3, func(cfg *config.Config) { cfg.ReplicationFactor = 2 })
 	cl := c.client()
@@ -296,8 +337,7 @@ func TestJoinRebalancesWithoutLosingConcurrentWrites(t *testing.T) {
 		mustSet(t, cl, fmt.Sprint("k", i), "0")
 	}
 	// Keep writing while node-4 joins; remember the last acknowledged value.
-	var mu sync.Mutex
-	last := map[string]string{}
+	log := newWriteLog()
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
@@ -310,11 +350,8 @@ func TestJoinRebalancesWithoutLosingConcurrentWrites(t *testing.T) {
 				default:
 				}
 				k, v := fmt.Sprint("k", i), fmt.Sprint(round)
-				if _, err := cl.Set(context.Background(), k, []byte(v), 0); err == nil {
-					mu.Lock()
-					last[k] = v
-					mu.Unlock()
-				}
+				_, err := cl.Set(context.Background(), k, []byte(v), 0)
+				log.record(k, v, err)
 			}
 		}
 	}()
@@ -327,16 +364,11 @@ func TestJoinRebalancesWithoutLosingConcurrentWrites(t *testing.T) {
 	moved := 0
 	for i := 0; i < keys; i++ {
 		k := fmt.Sprint("k", i)
-		want := "0"
-		mu.Lock()
-		if v, ok := last[k]; ok {
-			want = v
-		}
-		mu.Unlock()
 		got, ok := mustGet(t, cl, k)
-		if !ok || got != want {
-			t.Fatalf("%s = %q (%v), want %q: acknowledged write lost", k, got, ok, want)
+		if !ok {
+			t.Fatalf("%s missing", k)
 		}
+		log.check(t, k, "0", got)
 		owners := r.Owners(k, 2)
 		if slices.Contains(owners, "node-4") {
 			moved++
@@ -585,5 +617,189 @@ func TestHealthyClusterNeverReportsQuorumFailure(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Fatalf("healthy cluster rejected a write: %v", err)
+	}
+}
+
+// Non-transitive partition: node-1 and node-3 cannot talk to each other, but
+// both can talk to node-2. Each side still sees a majority, so neither may
+// remove the other on its own opinion alone.
+func TestNonTransitivePartitionDoesNotRemoveMembers(t *testing.T) {
+	c := newCluster(t, 3, func(cfg *config.Config) { cfg.RemoveDeadAfter = 300 * time.Millisecond })
+	n1, n3 := c.nodes["node-1"], c.nodes["node-3"]
+	n1.Faults().Block("node-3")
+	n3.Faults().Block("node-1")
+	eventually(t, 5*time.Second, "mutual dead opinions", func() bool {
+		return n1.Members().Liveness("node-3").String() == "dead" && n3.Members().Liveness("node-1").String() == "dead"
+	})
+	time.Sleep(time.Second) // well past RemoveDeadAfter: removal must not happen
+	for _, id := range c.ids() {
+		if got := c.nodes[id].m.removals.With("auto").Value(); got != 0 {
+			t.Fatalf("%s removed %d members that the rest of the cluster still sees", id, got)
+		}
+		if rec, _ := c.nodes[id].Status(); rec.Reason == "removed from cluster" {
+			t.Fatalf("%s was removed and had to rejoin", id)
+		}
+	}
+	cl := c.client()
+	mustSet(t, cl, "k", "v")
+	if v, _ := mustGet(t, cl, "k"); v != "v" {
+		t.Fatal(v)
+	}
+	c.heal()
+	c.waitConverged()
+}
+
+// keyWithPrimary finds a key whose first ring owner is id.
+func keyWithPrimary(t *testing.T, n *Node, id string) string {
+	for i := 0; i < 10000; i++ {
+		k := fmt.Sprint("skew-", i)
+		if n.Ring().Primary(k) == id {
+			return k
+		}
+	}
+	t.Fatal("no key found")
+	return ""
+}
+
+// A coordinator whose clock runs 10 s fast writes v1; it then dies and a
+// coordinator with a correct clock writes v2. Without the hybrid logical clock,
+// v2 would carry a lower timestamp and lose to v1 on every replica. Because
+// every node advances its clock past the versions it receives, v2 wins.
+func TestClockSkewDoesNotReorderSequentialWrites(t *testing.T) {
+	c := newSkewedCluster(t, 3, nil, map[string]time.Duration{"node-1": 10 * time.Second})
+	cl := c.client()
+	key := keyWithPrimary(t, c.nodes["node-2"], "node-1")
+	v1, err := cl.Set(context.Background(), key, []byte("v1"), 0)
+	if err != nil || v1.Node != "node-1" {
+		t.Fatalf("v1 should be coordinated by the skewed node-1: %v %v", v1, err)
+	}
+	eventually(t, 3*time.Second, "v1 replicated", func() bool {
+		_, ok2 := localValue(c.nodes["node-2"], key)
+		_, ok3 := localValue(c.nodes["node-3"], key)
+		return ok2 && ok3
+	})
+	c.kill("node-1")
+	eventually(t, 5*time.Second, "node-1 dead", func() bool { return !c.nodes["node-2"].Members().Routable("node-1") })
+	v2, err := cl.Set(context.Background(), key, []byte("v2"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("v1=%v v2=%v", v1, v2)
+	if v2.Node == "node-1" || !v2.Newer(v1) {
+		t.Fatalf("later write %v does not supersede skewed earlier write %v", v2, v1)
+	}
+	for _, id := range c.ids() {
+		if v, _ := localValue(c.nodes[id], key); v != "v2" {
+			t.Fatalf("%s holds %q; the later write was lost to clock skew", id, v)
+		}
+	}
+}
+
+// Documents a known limitation: expiry uses each node's own clock. A replica
+// whose clock runs ahead treats a short-TTL value as already expired.
+func TestClockSkewShortensTTLOnFastReplica(t *testing.T) {
+	c := newSkewedCluster(t, 3, nil, map[string]time.Duration{"node-3": 10 * time.Second})
+	key := keyWithPrimary(t, c.nodes["node-1"], "node-1")
+	resp := call(t, c.nodes["node-1"], &protocol.Message{Op: protocol.OpSet, Key: key, Value: []byte("v"), TTLMs: 5000})
+	if resp.Status != protocol.StatusOK {
+		t.Fatal(resp.Error)
+	}
+	eventually(t, 3*time.Second, "replica with correct clock stores it", func() bool {
+		_, ok := localValue(c.nodes["node-2"], key)
+		return ok
+	})
+	c.antiEntropy()
+	if _, ok := localValue(c.nodes["node-3"], key); ok {
+		t.Fatal("a replica 10 s ahead should consider a 5 s TTL already expired")
+	}
+	if _, ok := localValue(c.nodes["node-1"], key); !ok {
+		t.Fatal("coordinator lost the value")
+	}
+}
+
+// A coordinator must never acknowledge a write that its own store rejected as
+// older. If a newer version reached the local store without passing through
+// the clock (any such path is a bug), the coordinator still issues a version
+// above it.
+func TestCoordinatorVersionExceedsLocalCopy(t *testing.T) {
+	c := newCluster(t, 1, func(cfg *config.Config) { cfg.ReplicationFactor = 1 })
+	n := c.nodes["node-1"]
+	future := version.Version{T: uint64(time.Now().Add(time.Hour).UnixMilli()) << 16, Node: "elsewhere"}
+	if ok, _ := n.Store().Apply(store.Entry{Key: "k", Value: []byte("old"), Version: future}); !ok {
+		t.Fatal("setup")
+	}
+	resp := call(t, n, &protocol.Message{Op: protocol.OpSet, Key: "k", Value: []byte("new")})
+	if resp.Status != protocol.StatusOK {
+		t.Fatal(resp.Error)
+	}
+	if v, _ := localValue(n, "k"); v != "new" {
+		t.Fatalf("write acknowledged but discarded: store holds %q", v)
+	}
+}
+
+// Several membership changes at once, under continuous writes: two nodes join
+// while another crashes and is removed. No acknowledged write may be lost and
+// every key must end up exactly on its owners in the final ring.
+func TestConcurrentMembershipChangesUnderLoad(t *testing.T) {
+	c := newCluster(t, 4, func(cfg *config.Config) {
+		cfg.ReplicationFactor = 2
+		cfg.RemoveDeadAfter = 300 * time.Millisecond
+	})
+	cl := c.client()
+	const keys = 400
+	for i := 0; i < keys; i++ {
+		mustSet(t, cl, fmt.Sprint("k", i), "0")
+	}
+	log := newWriteLog()
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for round := 1; ; round++ {
+			for i := 0; i < keys; i += 5 {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				k, v := fmt.Sprint("k", i), fmt.Sprint(round)
+				_, err := cl.Set(context.Background(), k, []byte(v), 0)
+				log.record(k, v, err)
+			}
+		}
+	}()
+	c.start("node-5")
+	c.kill("node-2")
+	c.start("node-6")
+	eventually(t, 15*time.Second, "node-2 removed everywhere", func() bool {
+		for _, n := range c.nodes {
+			if n.Ring().Contains("node-2") {
+				return false
+			}
+		}
+		return true
+	})
+	c.waitConverged()
+	close(stop)
+	<-done
+	c.antiEntropy()
+	c.antiEntropy() // a second pass drops copies whose new owners confirmed in the first
+	r := c.nodes["node-1"].Ring()
+	if r.Len() != 5 {
+		t.Fatalf("ring %v", r.Nodes())
+	}
+	for i := 0; i < keys; i++ {
+		k := fmt.Sprint("k", i)
+		got, found := mustGet(t, cl, k)
+		if !found {
+			t.Fatalf("%s missing", k)
+		}
+		log.check(t, k, "0", got)
+		owners := r.Owners(k, 2)
+		for id, n := range c.nodes {
+			_, has := localValue(n, k)
+			if has != slices.Contains(owners, id) {
+				t.Fatalf("%s on %s: has=%v but owners=%v", k, id, has, owners)
+			}
+		}
 	}
 }

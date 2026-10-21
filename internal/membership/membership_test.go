@@ -139,3 +139,33 @@ func TestRemoveAndRing(t *testing.T) {
 		t.Fatal("status/peers")
 	}
 }
+
+func TestRemovalVotesNeedFreshMajority(t *testing.T) {
+	c := &clock{t: time.Unix(0, 0)}
+	tb := newTestTable(c) // self = a
+	tb.Merge([]Member{
+		{ID: "b", Generation: 1, Incarnation: 1, Phase: PhaseActive},
+		{ID: "c", Generation: 1, Incarnation: 1, Phase: PhaseActive},
+	})
+	c.advance(10 * time.Second)
+	tb.MarkSeen("b")
+	tb.Tick() // a sees c dead, b alive
+	if v, total := tb.RemovalVotes("c", time.Second); v != 1 || total != 3 {
+		t.Fatalf("only our own opinion: votes=%d total=%d", v, total)
+	}
+	tb.RecordReport("b", []string{"c"})
+	if v, _ := tb.RemovalVotes("c", time.Second); v != 2 {
+		t.Fatalf("b corroborates: votes=%d", v)
+	}
+	c.advance(2 * time.Second)
+	if v, _ := tb.RemovalVotes("c", time.Second); v != 1 {
+		t.Fatalf("stale reports must not count: votes=%d", v)
+	}
+	tb.RecordReport("c", []string{"a"}) // the suspect's own report never counts toward its removal
+	if v, _ := tb.RemovalVotes("c", time.Second); v != 1 {
+		t.Fatal("suspect voted")
+	}
+	if got := tb.DownIDs(); len(got) != 1 || got[0] != "c" {
+		t.Fatalf("down ids %v", got)
+	}
+}

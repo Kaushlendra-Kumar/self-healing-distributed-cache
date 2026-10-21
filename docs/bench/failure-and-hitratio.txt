@@ -1,0 +1,31 @@
+== A. node failure under load (mixed 90/10, c=16, 10k keys; kill node2 at t=5s, restart at t=12s)
+t= 0s ops= 41180 errors=0
+t= 1s ops= 42190 errors=0
+t= 2s ops= 42573 errors=0
+t= 3s ops= 41847 errors=0
+t= 4s ops= 42065 errors=0
+t= 5s ops= 34684 errors=0
+t= 6s ops= 27404 errors=0
+t= 7s ops= 27826 errors=0
+t= 8s ops= 27602 errors=0
+t= 9s ops= 28859 errors=0
+t=10s ops= 34527 errors=0
+t=11s ops= 38871 errors=0
+t=12s ops= 41090 errors=0
+t=13s ops= 34103 errors=0
+t=14s ops= 31095 errors=0
+t=15s ops= 38742 errors=0
+t=16s ops= 44239 errors=0
+t=17s ops= 43617 errors=0
+t=18s ops= 43541 errors=0
+t=19s ops= 41906 errors=0
+t=20s ops=    16 errors=0
+mixed under failure              37398 ops/s  p50=  308µs p95= 1130µs p99=  2289µs errors=0
+
+== B. hit ratio with 4 MiB per node (~16k entries/node, RF=3) and 100k keys, mixed 90/10, c=16
+lru  uniform  hit ratio=0.202  ops_per_sec=44687.89260968706
+lru  zipf     hit ratio=0.748  ops_per_sec=42698.18235888392
+shc_store_entries 17488 shc_store_bytes 4.192832e+06 shc_store_evictions_total 204935 
+lfu  uniform  hit ratio=0.205  ops_per_sec=44305.00036306398
+lfu  zipf     hit ratio=0.748  ops_per_sec=43115.49805187704
+shc_store_entries 17488 shc_store_bytes 4.192808e+06 shc_store_evictions_total 199437 

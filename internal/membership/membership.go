@@ -123,6 +123,12 @@ type Table struct {
 	selfID  string
 	members map[string]Member
 	peers   map[string]*peer
+	reports map[string]downReport // reporter ID -> the peers it currently sees as dead
+}
+
+type downReport struct {
+	at   time.Time
+	down map[string]bool
 }
 
 // NewTable creates a table containing only self.
@@ -141,6 +147,7 @@ func NewTable(self Member, cfg Config) *Table {
 		selfID:  self.ID,
 		members: map[string]Member{self.ID: self},
 		peers:   map[string]*peer{},
+		reports: map[string]downReport{},
 	}
 }
 
@@ -494,4 +501,62 @@ func (t *Table) ClearDeadMarks() {
 		p.mark = nil
 	}
 	t.mu.Unlock()
+}
+
+// DownIDs returns the peers this node currently believes are dead, for
+// gossiping as a liveness report.
+func (t *Table) DownIDs() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var out []string
+	for id, p := range t.peers {
+		if p.liveness == Dead {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// RecordReport stores the latest liveness report received from a peer.
+func (t *Table) RecordReport(from string, down []string) {
+	if from == "" || from == t.selfID {
+		return
+	}
+	r := downReport{at: t.cfg.Now(), down: make(map[string]bool, len(down))}
+	for _, id := range down {
+		r.down[id] = true
+	}
+	t.mu.Lock()
+	t.reports[from] = r
+	t.mu.Unlock()
+}
+
+// RemovalVotes counts the ring members that currently consider id dead: this
+// node (by its own detector) plus every other member whose report is younger
+// than fresh. total is the ring size. Removing a member on one node's opinion
+// alone is unsafe under non-transitive partitions (A cannot reach C, but B
+// reaches both): A and C would each remove the other while B sees both alive.
+func (t *Table) RemovalVotes(id string, fresh time.Duration) (votes, total int) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	now := t.cfg.Now()
+	for mid, m := range t.members {
+		if m.Phase == PhaseLeft {
+			continue
+		}
+		total++
+		switch mid {
+		case id:
+		case t.selfID:
+			if p := t.peers[id]; p != nil && p.liveness == Dead {
+				votes++
+			}
+		default:
+			if r, ok := t.reports[mid]; ok && now.Sub(r.at) <= fresh && r.down[id] {
+				votes++
+			}
+		}
+	}
+	return votes, total
 }

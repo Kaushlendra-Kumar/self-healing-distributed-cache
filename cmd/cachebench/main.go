@@ -39,6 +39,7 @@ type result struct {
 	P99us       int64   `json:"p99_us"`
 	MaxUs       int64   `json:"max_us"`
 	FirstError  string  `json:"first_error,omitempty"`
+	Dist        string  `json:"dist"`
 }
 
 func main() {
@@ -52,6 +53,8 @@ func main() {
 	prefill := flag.Bool("prefill", true, "write every key once before measuring")
 	asJSON := flag.Bool("json", false, "print the result as JSON")
 	label := flag.String("label", "", "label stored with the result")
+	dist := flag.String("dist", "uniform", "key distribution: uniform | zipf (s=1.1, a few hot keys)")
+	timeline := flag.Bool("timeline", false, "print ops and errors per second (for failure experiments)")
 	out := flag.String("out", "", "append the JSON result to this file")
 	flag.Parse()
 
@@ -90,6 +93,8 @@ func main() {
 	}
 
 	var ops, errs, hits, misses atomic.Int64
+	secs := int(dur.Seconds()) + 2
+	secOps, secErrs := make([]atomic.Int64, secs), make([]atomic.Int64, secs)
 	var firstErr atomic.Value
 	lat := make([][]time.Duration, *conc)
 	deadline := time.Now().Add(*dur)
@@ -100,8 +105,17 @@ func main() {
 		go func(w int) {
 			defer wg.Done()
 			rng := rand.New(rand.NewSource(int64(w) + 7))
+			var zipf *rand.Zipf
+			if *dist == "zipf" {
+				zipf = rand.NewZipf(rng, 1.1, 1, uint64(*keys-1))
+			}
 			for time.Now().Before(deadline) {
-				k := key(rng.Intn(*keys))
+				var k string
+				if zipf != nil {
+					k = key(int(zipf.Uint64()))
+				} else {
+					k = key(rng.Intn(*keys))
+				}
 				kind := *op
 				if kind == "mixed" {
 					kind = "set"
@@ -129,7 +143,10 @@ func main() {
 				}
 				lat[w] = append(lat[w], time.Since(t0))
 				ops.Add(1)
+				sec := min(int(time.Since(start)/time.Second), secs-1)
+				secOps[sec].Add(1)
 				if err != nil {
+					secErrs[sec].Add(1)
 					errs.Add(1)
 					firstErr.CompareAndSwap(nil, err.Error())
 				}
@@ -154,10 +171,15 @@ func main() {
 		Label: *label, Op: *op, Concurrency: *conc, ValueBytes: *size, Keys: *keys, ReadRatio: *reads,
 		Duration: elapsed.Round(time.Millisecond).String(), Ops: ops.Load(), Errors: errs.Load(),
 		Hits: hits.Load(), Misses: misses.Load(), OpsPerSec: float64(ops.Load()) / elapsed.Seconds(),
-		P50us: pct(0.50), P95us: pct(0.95), P99us: pct(0.99), MaxUs: pct(1),
+		Dist: *dist, P50us: pct(0.50), P95us: pct(0.95), P99us: pct(0.99), MaxUs: pct(1),
 	}
 	if e, ok := firstErr.Load().(string); ok {
 		r.FirstError = e
+	}
+	if *timeline {
+		for i := 0; i < secs && i < int(elapsed.Seconds())+1; i++ {
+			fmt.Printf("t=%2ds ops=%6d errors=%d\n", i, secOps[i].Load(), secErrs[i].Load())
+		}
 	}
 	if *out != "" {
 		f, err := os.OpenFile(*out, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)

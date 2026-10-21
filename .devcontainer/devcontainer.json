@@ -1,0 +1,20 @@
+{
+  "name": "self-healing-distributed-cache",
+  "image": "mcr.microsoft.com/devcontainers/go:1-1.22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y jq && go build -o bin/ ./cmd/...",
+  "forwardPorts": [8001, 8002, 8003, 9090],
+  "portsAttributes": {
+    "8001": { "label": "node1 admin" },
+    "8002": { "label": "node2 admin" },
+    "8003": { "label": "node3 admin" },
+    "9090": { "label": "prometheus" }
+  },
+  "hostRequirements": { "cpus": 2, "memory": "4gb" },
+  "customizations": {
+    "codespaces": { "openFiles": ["README.md", "docs/DEMO.md"] },
+    "vscode": { "extensions": ["golang.go"] }
+  }
+}

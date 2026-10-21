@@ -5,7 +5,6 @@ import (
 	"errors"
 	"slices"
 	"sync"
-	"time"
 
 	"github.com/Kaushlendra-Kumar/self-healing-distributed-cache/internal/config"
 	"github.com/Kaushlendra-Kumar/self-healing-distributed-cache/internal/protocol"
@@ -133,7 +132,13 @@ func (n *Node) coordinateWrite(req *protocol.Message, p placement) *protocol.Mes
 		return protocol.Err(req, protocol.CodeUnavailable,
 			"only %d of %d owners routable; write quorum is %d", len(p.routable), len(p.owners), w)
 	}
-	now := time.Now()
+	now := n.now()
+	// The new version must exceed the local copy, or the store would reject
+	// the write we are about to acknowledge. Every path that stores a version
+	// also advances the clock, so this is a safety net, not the mechanism.
+	if cur, ok := n.store.Lookup(req.Key); ok {
+		n.clock.Observe(cur.Version.T)
+	}
 	e := store.Entry{Key: req.Key, Version: version.Version{T: n.clock.Next(), Node: n.cfg.NodeID}}
 	if req.Op == protocol.OpDelete {
 		e.Tombstone = true
@@ -277,17 +282,17 @@ func (n *Node) localRead(req *protocol.Message) *protocol.Message {
 	if !ok {
 		return resp
 	}
-	fillRead(resp, e)
+	fillRead(resp, e, n.now().UnixMilli())
 	return resp
 }
 
-func fillRead(resp *protocol.Message, e store.Entry) {
+func fillRead(resp *protocol.Message, e store.Entry, nowMs int64) {
 	resp.Found = true
 	resp.Value = e.Value
 	v := e.Version
 	resp.Version = &v
 	if e.ExpireAt > 0 {
-		resp.TTLMs = max(e.ExpireAt-time.Now().UnixMilli(), 0)
+		resp.TTLMs = max(e.ExpireAt-nowMs, 0)
 	}
 }
 
@@ -354,6 +359,9 @@ func (n *Node) quorumRead(req *protocol.Message, p placement) *protocol.Message 
 	}
 	var newest *store.Entry
 	for _, a := range got {
+		if a.entry != nil {
+			n.clock.Observe(a.entry.Version.T)
+		}
 		if a.entry != nil && (newest == nil || a.entry.Version.Newer(newest.Version)) {
 			newest = a.entry
 		}
@@ -367,7 +375,7 @@ func (n *Node) quorumRead(req *protocol.Message, p placement) *protocol.Message 
 	}
 	resp := protocol.OK(req)
 	if newest != nil && !newest.Tombstone {
-		fillRead(resp, *newest)
+		fillRead(resp, *newest, n.now().UnixMilli())
 	}
 	return resp
 }

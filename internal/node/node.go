@@ -74,7 +74,9 @@ type Node struct {
 // Options carries dependencies that are not plain configuration.
 type Options struct {
 	Logger *slog.Logger
-	Now    func() time.Time // for membership timeouts; time.Now if nil
+	// Now is the node's wall clock, used for versions (HLC), TTL expiry and
+	// failure-detector timeouts. time.Now if nil; tests inject skew here.
+	Now func() time.Time
 }
 
 // New validates cfg and constructs a node. Call Start to bind and run it.
@@ -85,12 +87,16 @@ func New(cfg config.Config, opts Options) (*Node, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
 	st, err := store.New(store.Config{
 		MaxBytes:      cfg.MaxMemoryBytes,
 		MaxEntries:    cfg.MaxEntries,
 		Policy:        cfg.Eviction,
 		TombstoneTTL:  cfg.TombstoneTTL,
 		SweepInterval: cfg.SweepInterval,
+		Now:           opts.Now,
 	})
 	if err != nil {
 		return nil, err
@@ -104,7 +110,7 @@ func New(cfg config.Config, opts Options) (*Node, error) {
 		cfg:         cfg,
 		log:         opts.Logger.With("node", cfg.NodeID),
 		store:       st,
-		clock:       version.NewClock(nil),
+		clock:       version.NewClock(opts.Now),
 		faults:      faults,
 		pool:        transport.NewPool(transport.ClientConfig{MaxFrame: cfg.MaxFrameBytes, DefaultTimeout: cfg.RequestTimeout}, faults),
 		limiter:     newLimiter(cfg.SyncRateKeys),

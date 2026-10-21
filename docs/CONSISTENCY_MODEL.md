@@ -40,6 +40,12 @@ change or a partition. Then the write with the larger HLC wins, even if it happe
 "first" in real time. With skew Δ, a write can lose to an earlier write from a node
 whose clock is up to Δ ahead.
 
+Tested with injected skew: a coordinator 10 s ahead writes, then dies, and the next
+coordinator's later write still wins on every replica, because the next coordinator's
+HLC had already advanced past the version it received
+(`TestClockSkewDoesNotReorderSequentialWrites`). Disabling clock observation makes that
+test fail.
+
 In the common case there is no conflict: a single coordinator (the first routable owner)
 serializes all writes to a key, and its HLC is monotonic.
 
@@ -139,7 +145,8 @@ versions only.
   which replicates unchanged. Replicas and sync **cannot extend** a key's lifetime
   (`TestTTLIsAbsoluteAcrossReplicas`).
 - Expiry is evaluated against each node's own wall clock. Clock skew Δ makes a key
-  expire up to Δ earlier or later on different nodes.
+  expire up to Δ earlier or later on different nodes. `TestClockSkewShortensTTLOnFastReplica`
+  pins this down: a replica 10 s ahead treats a 5 s TTL as already expired.
 - An expired entry is treated as absent everywhere: reads, digests and pushes.
 
 ## What eviction means

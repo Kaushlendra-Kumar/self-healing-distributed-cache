@@ -2,15 +2,19 @@
 # GO_IMAGE can point at a mirror (e.g. mirror.gcr.io/library/golang:1.22-alpine)
 # when Docker Hub rate limits apply.
 ARG GO_IMAGE=golang:1.22-alpine
-FROM ${GO_IMAGE} AS build
+# Build on the native platform and cross-compile (fast multi-arch images).
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
+ARG TARGETOS=linux
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/cachenode ./cmd/cachenode \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/cachectl ./cmd/cachectl \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/cachebench ./cmd/cachebench
+RUN export CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+ && go build -trimpath -ldflags="-s -w" -o /out/cachenode ./cmd/cachenode \
+ && go build -trimpath -ldflags="-s -w" -o /out/cachectl ./cmd/cachectl \
+ && go build -trimpath -ldflags="-s -w" -o /out/cachebench ./cmd/cachebench
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/ /usr/local/bin/

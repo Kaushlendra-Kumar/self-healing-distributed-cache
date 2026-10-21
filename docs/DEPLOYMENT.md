@@ -103,6 +103,19 @@ The notes below reflect my understanding as of 2025–2026.
 3. **GCP trial credits** if you want to show zone-level failure domains, then tear the
    VMs down.
 
+### Ready-made in this repository
+
+- **Codespaces:** `.devcontainer/devcontainer.json` gives Go 1.22, Docker-in-Docker and
+  jq, builds the binaries, and forwards the admin ports (8001–8003) and Prometheus
+  (9090). Run `docker compose up -d --build && ./scripts/demo.sh`. Stop the Codespace
+  when you're done to save your free hours.
+- **Image publishing:** `.github/workflows/release.yml` builds `linux/amd64` and
+  `linux/arm64` images (arm64 for Oracle's Ampere VMs) and pushes them to
+  `ghcr.io/<owner>/self-healing-distributed-cache`. Trigger it by pushing a tag
+  (`git tag v0.1.0 && git push origin v0.1.0`) or running it manually from the Actions
+  tab. The package is private by default; make it public in the package settings if
+  VMs should pull without logging in.
+
 ### Sketch: three VMs (Oracle Cloud or GCP)
 
 1. Create a private network (VCN/VPC) with one subnet. The firewall allows TCP 7000 and

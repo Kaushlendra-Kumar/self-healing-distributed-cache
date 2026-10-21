@@ -54,6 +54,7 @@ func (n *Node) gossipMessage() *protocol.Message {
 	// its dead marks would wrongly force healthy majority nodes to resync.
 	if !n.inMinority() {
 		m.DeadMarks = n.members.DeadMarks()
+		m.Down = n.members.DownIDs()
 	}
 	return m
 }
@@ -101,6 +102,7 @@ func (n *Node) handleGossip(req *protocol.Message) *protocol.Message {
 func (n *Node) absorbGossip(m *protocol.Message) {
 	res := n.members.Merge(m.Members)
 	if m.From != "" {
+		n.members.RecordReport(m.From, m.Down)
 		if ev := n.members.MarkSeen(m.From); ev != nil {
 			n.recordEvents([]membership.Event{*ev})
 		}
@@ -173,7 +175,10 @@ func (n *Node) checkPartition() {
 // autoRemove takes members that have been dead for RemoveDeadAfter out of the
 // ring so their ranges get new owners and the replication factor is restored.
 // Only a node that sees a strict majority of the ring does this, so the
-// minority side of a partition never reassigns ownership on its own.
+// minority side of a partition never reassigns ownership on its own, and only
+// when a strict majority of ring members (this node plus fresh gossiped
+// reports) consider the member dead, so a broken link between two nodes is not
+// mistaken for a dead node.
 func (n *Node) autoRemove() {
 	if n.cfg.RemoveDeadAfter <= 0 || n.inMinority() {
 		return
@@ -183,6 +188,9 @@ func (n *Node) autoRemove() {
 		up, total := n.members.ReachableRingCount()
 		if up*2 <= total {
 			break
+		}
+		if votes, ringSize := n.members.RemovalVotes(id, n.cfg.DeadAfter); votes*2 <= ringSize {
+			continue // not corroborated by a majority: possibly only our link to it is broken
 		}
 		if n.members.Remove(id) {
 			changed = true

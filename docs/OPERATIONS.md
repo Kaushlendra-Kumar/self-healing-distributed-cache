@@ -24,7 +24,7 @@ effective values.
 | `SHC_SWEEP_INTERVAL` | 1s | Active expiration; 0 = lazy only |
 | `SHC_MAX_KEY_BYTES` / `SHC_MAX_VALUE_BYTES` / `SHC_MAX_FRAME_BYTES` | 512 / 1 MiB / 4 MiB | Frame must exceed key + value + 1 KiB |
 | `SHC_HEARTBEAT_INTERVAL` / `SHC_SUSPECT_AFTER` / `SHC_DEAD_AFTER` | 500ms / 1.5s / 4s | Must be strictly increasing |
-| `SHC_REMOVE_DEAD_AFTER` | 30s | 0 disables automatic removal (then an operator must remove members) |
+| `SHC_REMOVE_DEAD_AFTER` | 30s | 0 disables automatic removal (then an operator must remove members). Removal also needs a strict majority of the ring to report the member dead |
 | `SHC_ANTI_ENTROPY_INTERVAL` | 30s | Periodic full repair pass; 0 = only on ring changes |
 | `SHC_SYNC_RATE_KEYS` / `SHC_SYNC_BATCH` | 20000 / 256 | Migration throttle and batch size |
 | `SHC_JOIN_TIMEOUT` | 30s | After this, a joining node goes active even if some sources never answered |

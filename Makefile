@@ -1,4 +1,4 @@
-.PHONY: build test race e2e fuzz bench micro lint up down demo cluster stop
+.PHONY: build test race e2e fuzz bench bench-failure micro lint up down demo cluster stop
 
 build:
 	go build -o bin/ ./cmd/...
@@ -39,3 +39,6 @@ down:
 
 demo:
 	./scripts/demo.sh
+
+bench-failure: build
+	./scripts/bench-failure.sh

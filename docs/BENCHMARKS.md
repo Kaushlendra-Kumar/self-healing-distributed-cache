@@ -68,6 +68,53 @@ network jitter. Each false positive costs a full resync of that node.
 The join is deliberately throttled. Raising `SHC_SYNC_RATE_KEYS` shortens it, at the
 cost of competing with client traffic.
 
+## Behaviour under node failure
+
+`scripts/bench-failure.sh` (part A): 90% GET / 10% SET, c=16, 10k keys, for 20 s.
+`SIGKILL` node2 at t≈5 s and restart it (empty) at t≈12 s. Raw output:
+[bench/failure-and-hitratio.txt](bench/failure-and-hitratio.txt).
+
+| Phase | ops/s (per-second samples) | Client errors |
+|---|---|---|
+| Healthy (t=0–4) | 41.2k – 42.6k | 0 |
+| node2 killed, not yet declared dead (t=5–9) | 27.4k – 34.7k | 0 |
+| node2 dead, routed around (t=10–12) | 34.5k → 41.1k | 0 |
+| node2 restarting and resyncing (t=13–14) | 31.1k – 34.1k | 0 |
+| node2 active again (t=15–19) | 38.7k – 44.2k | 0 |
+| **Total** | **748k ops, 37.4k ops/s average, p99 2.3 ms** | **0** |
+
+What happens:
+
+- Until node2 is declared dead (~4 s), clients and coordinators still try it first.
+  They get "connection refused" and fall back to the next owner, so requests succeed
+  but cost an extra attempt. That's the ~35% dip.
+- Once node2 is dead, routing skips it.
+- The restart costs a short dip while node2 pulls its data, then it rejoins.
+- The client library's retries hide every failure. No acknowledged write was rejected.
+
+## Hit ratio under memory pressure
+
+Part B: each node limited to 4 MiB, which holds ~17.5k entries of 128 B values. With
+RF=3 the cluster holds about 17.5k distinct keys, but the workload uses 100k keys:
+90% GET / 10% SET, c=16, 5 s, after a prefill of all 100k keys.
+
+| Policy | Uniform keys | Zipf keys (s = 1.1) |
+|---|---|---|
+| LRU | hit ratio 0.202 | hit ratio 0.748 |
+| LFU | hit ratio 0.205 | hit ratio 0.748 |
+
+Each node evicted ~200k entries during the run and stayed at its 4 MiB budget
+(`shc_store_bytes` 4.19 MB).
+
+- **Uniform:** the hit ratio matches capacity ÷ key space (17.5k / 100k ≈ 0.18), plus
+  freshly written keys.
+- **Skewed:** a small hot set gets most of the requests, so the same memory serves
+  three-quarters of reads.
+- **LRU vs LFU made no measurable difference.** With a stable hot set, LRU already keeps
+  the hot keys. LFU's advantage, resisting one-off scans that would flush an LRU, isn't
+  exercised by this workload. This is a measured null result, not a claim that the
+  policies are equivalent in general.
+
 ## Key distribution
 
 From the ring tests (`go test -v ./internal/ring/`), 100k keys over 5 nodes:

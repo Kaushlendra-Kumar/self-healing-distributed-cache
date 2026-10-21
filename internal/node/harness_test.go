@@ -50,11 +50,19 @@ type cluster struct {
 	nodes map[string]*Node
 	seeds []string
 	mod   func(*config.Config)
+	skew  map[string]time.Duration // per-node wall-clock offset
 }
 
 func newCluster(t *testing.T, size int, mod func(*config.Config)) *cluster {
 	t.Helper()
-	c := &cluster{t: t, nodes: map[string]*Node{}, mod: mod}
+	return newSkewedCluster(t, size, mod, nil)
+}
+
+// newSkewedCluster starts a cluster in which the listed nodes' wall clocks are
+// offset from real time.
+func newSkewedCluster(t *testing.T, size int, mod func(*config.Config), skew map[string]time.Duration) *cluster {
+	t.Helper()
+	c := &cluster{t: t, nodes: map[string]*Node{}, mod: mod, skew: skew}
 	t.Cleanup(func() {
 		for _, n := range c.nodes {
 			n.Kill()
@@ -74,7 +82,11 @@ func (c *cluster) start(id string) *Node {
 	if c.mod != nil {
 		c.mod(&cfg)
 	}
-	n, err := New(cfg, Options{Logger: testLogger(c.t)})
+	opts := Options{Logger: testLogger(c.t)}
+	if d := c.skew[id]; d != 0 {
+		opts.Now = func() time.Time { return time.Now().Add(d) }
+	}
+	n, err := New(cfg, opts)
 	if err != nil {
 		c.t.Fatal(err)
 	}

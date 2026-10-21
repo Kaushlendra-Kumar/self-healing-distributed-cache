@@ -38,8 +38,9 @@ never gossiped as fact.
 - **Behaviour:** the next routable owner coordinates its keys. With N=3 and W=2, writes
   continue on the 2 survivors. Clients see errors only for requests that were in flight
   to the dead node. The client library retries those on another node.
-- **Healing:** after `REMOVE_DEAD_AFTER` (30 s), a node that sees a strict majority marks
-  the member `left`. The ring shrinks, new owners take its ranges, and rebalancing
+- **Healing:** after `REMOVE_DEAD_AFTER` (30 s), a node that sees a strict majority, and
+  whose opinion is corroborated (a strict majority of ring members report the member
+  dead in their gossip), marks the member `left`. The ring shrinks, new owners take its ranges, and rebalancing
   copies the data to them, restoring N copies.
 - **Tests:** `TestNodeCrashFailoverAndRecovery`, `TestAutoRemovalRestoresReplicationFactor`,
   the e2e `TestThreeProcessCrashAndRecovery` (real SIGKILL).
@@ -125,9 +126,12 @@ key can be written again.
   [CONSISTENCY_MODEL](CONSISTENCY_MODEL.md#partitions-and-split-brain). If refusal is
   disabled, or during the detection window, writes accepted on both sides are reconciled
   by LWW, and one of them is lost.
-- **Symmetric partitions only:** fault injection blocks both directions. An asymmetric
-  partition (A hears B, B doesn't hear A) produces asymmetric liveness opinions. That is
-  safe, because each node routes only on its own opinion, but it is untested.
+- **Non-transitive partitions** (A ↮ C, but both reach B): A and C each see a majority and
+  each other as dead. They stop routing to each other, but neither is removed, because
+  removal needs a strict majority of the ring to *report* the member dead (B reports both
+  alive). Writes keep succeeding through B. On heal, A and C each resync once, because
+  of the other's dead mark. Tested by `TestNonTransitivePartitionDoesNotRemoveMembers`.
+  Before that rule existed, A and C removed each other in a loop.
 
 ### Migration interrupted
 

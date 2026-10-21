@@ -54,6 +54,10 @@ curl localhost:8001/cluster           # membership, liveness, ownership
 If Docker Hub rate-limits you, build from a mirror:
 `GO_IMAGE=mirror.gcr.io/library/golang:1.22-alpine docker compose build`.
 
+**In the browser (free):** open the repo in GitHub Codespaces (Code → Codespaces →
+Create). The dev container includes Go and Docker. Then run
+`docker compose up -d --build && ./scripts/demo.sh`.
+
 **Without Docker:**
 
 ```bash
@@ -94,6 +98,8 @@ machine and 128 B values. Full methodology and caveats are in [docs/BENCHMARKS.m
 | SET c=32 | 22.6k ops/s, p99 6.2 ms | 56.9k ops/s, p99 2.9 ms |
 | Failure detection (SIGKILL → dead) | 4.2 s (timeout 4 s) | |
 | Restart with empty memory → ready (50k keys) | 2.6 s | |
+| Kill + restart a node during 90/10 load | **0 client errors** (748k ops) | |
+| 100k keys, cluster memory for ~17.5k, zipf access | hit ratio 0.75 | |
 
 ## Repository layout
 
@@ -131,12 +137,15 @@ docs/             design docs + ADRs    internal/metrics     Prometheus expositi
 make race    # unit + in-process cluster + fault-injection tests with the race detector
 make e2e     # three real processes, SIGKILL, restart, resync
 make fuzz    # fuzz the frame decoder
+./scripts/bench.sh && ./scripts/failover-timing.sh && ./scripts/bench-failure.sh
 ```
 
 ## Known limitations
 
 - **No consensus.** Membership is gossip-based. Split-brain is reduced (strict owner quorums, minority refusal, majority-only removal) but not eliminated. See [FAILURE_MODES](docs/FAILURE_MODES.md#network-partition).
 - **Not linearizable.** Writes are last-writer-wins by hybrid-logical-clock version, so concurrent writes from different coordinators are ordered by clocks, not real time.
+- **Partitions:** removal needs a majority of the ring to report a member dead, so
+  non-transitive partitions don't cause removals. A join *during* a partition is untested.
 - **Stale-read windows exist.** One window is between a partition starting and the isolated node noticing (up to `SHC_DEAD_AFTER`). Another is while ownership changes are still propagating by gossip.
 - **In-memory only.** If every replica of a key is lost, the key is gone, and reads report a miss.
 - **All-to-all heartbeats** cost O(n²) messages; aimed at clusters of a few to ~20 nodes.

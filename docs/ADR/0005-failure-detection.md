@@ -25,6 +25,11 @@ mark is gossiped to the marked peer, which must resync and bump its incarnation 
 anyone routes to it again. A node that sees ≤ half the ring neither gossips its marks
 nor keeps them after healing.
 
+Gossip also carries each node's list of peers it currently sees as dead. Automatic
+removal requires a strict majority of ring members to report the member dead, so a
+broken link between two nodes (a non-transitive partition) is not mistaken for a dead
+node.
+
 ## Consequences
 - Measured detection: 1.66 s to suspect and 4.17 s to dead after a SIGKILL.
 - A returning node with stale data is never routed to before it resyncs, which handles

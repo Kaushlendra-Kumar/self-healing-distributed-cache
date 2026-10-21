@@ -31,7 +31,7 @@ go test -run='^$' -fuzz=FuzzReadFrame -fuzztime=30s ./internal/protocol/
 | Store | set/get/delete; tombstones block stale resurrection; idempotent and out-of-order apply; lazy + sampled TTL; tombstone expiry; LRU and LFU victim order; memory bound and `ErrTooLarge`; compare-and-delete; concurrent access under `-race` with the sweeper running (both policies) |
 | Version / HLC | ordering and tie-break; monotonic with frozen clock; `Observe`; wall clock jumping backwards |
 | Ring | determinism across instances and input order; owners distinct and bounded (property-based, `testing/quick`); empty ring; **adding a 5th node moves 19.9% of keys vs 80.0% for modulo hashing**; removing a node moves only its keys and keeps survivor order; **virtual nodes cut key-count std-dev from 64% (1 vnode) to 9.7% (256 vnodes)**; ownership fractions sum to 1; hash spread |
-| Membership | record precedence (generation, incarnation, terminal `left`); alive → suspect → dead; dead mark blocks routing until recovery; self marked dead / removed; rejoin; removal; stale gossip cannot resurrect a removed member |
+| Membership | removal votes need a fresh majority, the suspect cannot vote; record precedence (generation, incarnation, terminal `left`); alive → suspect → dead; dead mark blocks routing until recovery; self marked dead / removed; rejoin; removal; stale gossip cannot resurrect a removed member |
 | Protocol | round trip under one-byte reads; oversized, zero, truncated, wrong-version frames; malformed JSON; oversized write; fuzzing |
 | Transport | 200 concurrent multiplexed calls; slow call times out without blocking others; dropped connection fails in-flight calls and reconnects; malformed payload keeps the connection, oversized frame closes it; fault injection (outbound block, inbound drop, delay) |
 | Metrics, config | exposition format; env parsing and validation |
@@ -60,6 +60,11 @@ go test -run='^$' -fuzz=FuzzReadFrame -fuzztime=30s ./internal/protocol/
 | Migration interruption | `TestJoinSurvivesSourceCrashMidSync` | A source dies mid-sync; the joiner still converges |
 | Healthy cluster under load | `TestHealthyClusterNeverReportsQuorumFailure` | 24,000 concurrent writes, zero errors |
 | Admin HTTP | `TestAdminHTTP` | Health, readiness, metrics, KV gateway, faults, status, leave |
+| Non-transitive partition | `TestNonTransitivePartitionDoesNotRemoveMembers` | Node-1 ↮ node-3 while both reach node-2: no removals, writes still succeed |
+| Clock skew, sequential writes | `TestClockSkewDoesNotReorderSequentialWrites` | A coordinator 10 s fast writes v1, dies, and a correct-clock coordinator's v2 still wins everywhere (fails if HLC observation is disabled; verified) |
+| Clock skew, TTL | `TestClockSkewShortensTTLOnFastReplica` | Pins the documented limitation: a replica 10 s ahead drops a 5 s TTL value as expired |
+| Ack implies stored | `TestCoordinatorVersionExceedsLocalCopy` | A future version already in the store cannot make an acknowledged write disappear |
+| Concurrent membership changes | `TestConcurrentMembershipChangesUnderLoad` | Two joins and one crash + removal at once under writes: no acknowledged write lost, exact placement |
 
 ### Process-level end-to-end (`test/e2e`)
 
@@ -91,16 +96,31 @@ The demo was run against Docker Compose. Its output is in [DEMO.md](DEMO.md).
    up to one heartbeat. Recovery now gossips the `active` phase immediately, and the
    scripts wait for cluster-wide convergence.
 
+5. **A broken link between two nodes caused mutual removal** (found by the non-transitive
+   partition test). Node-1 and node-3 could not reach each other but both reached node-2.
+   Each saw a majority, so each auto-removed the other, both rejoined, and the cycle
+   repeated. Removal now needs corroboration: gossip carries each node's list of
+   peers it sees as dead, and a member is removed only when a strict majority of the
+   ring reports it dead.
+6. **A write could be acknowledged and silently discarded** (found while verifying the
+   clock-skew test). Quorum-read repair could store a peer's version locally without
+   advancing the local clock. A later write coordinated by that node could then get a
+   lower version, which the store rejected, while the client was told "ok". Now every
+   path that receives a version advances the clock, and the coordinator advances past
+   its local copy before issuing a version. A test injects a future version directly.
+7. **A flawed test oracle** (found by the concurrent membership test). The join test
+   treated a write that returned an error as "not applied". An error means *unknown
+   outcome*. The tests now accept the last acknowledged value or any later
+   unacknowledged one; any older value fails.
+
 ## Not tested (known gaps)
 
-- Asymmetric partitions (A→B works, B→A doesn't).
-- A join or removal *during* a partition; several simultaneous membership changes.
-- Clock skew between nodes: all tests share one host clock. The HLC and LWW behaviour
-  under skew is argued in [CONSISTENCY_MODEL](CONSISTENCY_MODEL.md) but not exercised.
+- True one-way packet loss at the network layer. Fault injection cuts links between
+  node pairs, which covers non-transitive partitions (A↮C, both reach B). A one-way
+  network fault breaks TCP in both directions, so it reduces to the same case.
+- A join or removal *during* a partition.
 - Real multi-host networks (packet loss, reordering, MTU issues); only loopback and the
   Docker bridge.
-- Memory pressure across a full cluster (eviction is unit-tested per store, not
-  cluster-wide).
-- Long-running soak tests and clusters larger than 5 nodes.
+- Long-running soak tests and clusters larger than 6 nodes.
 - Linearizability checking with a history checker (e.g. Porcupine/Jepsen). The system
   does not claim linearizability, but such a checker would quantify stale reads.
