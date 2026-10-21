@@ -7,12 +7,11 @@
 #   curl -s localhost:8001/cluster | jq
 #
 # Host ports: data plane 7001-7003, admin/metrics 8001-8003.
+# Only node1 builds the image; node2 and node3 reuse it. If all three had a
+# build section, a parallel `--build` would race on the same image tag.
 x-node: &node
-  build:
-    context: .
-    args:
-      GO_IMAGE: ${GO_IMAGE:-golang:1.22-alpine}
   image: self-healing-cache:local
+  pull_policy: never
   restart: "no"
   env_file: .env.example
   stop_grace_period: 30s
@@ -26,6 +25,11 @@ x-node: &node
 services:
   node1:
     <<: *node
+    build:
+      context: .
+      args:
+        GO_IMAGE: ${GO_IMAGE:-golang:1.22-alpine}
+    pull_policy: build
     hostname: node1
     environment:
       SHC_NODE_ID: node1
