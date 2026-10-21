@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/pprof"
 	"strconv"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 //	POST /admin/remove?id=  remove a member (e.g. a permanently failed node)
 //	POST /admin/leave       hand off data, leave the ring and shut down
 //	GET/POST /admin/faults  fault injection (only if SHC_ENABLE_FAULT_INJECTION)
+//	GET  /debug/pprof/      Go profiler (only if SHC_ENABLE_PPROF)
 //	GET/PUT/DELETE /v1/kv/{key}  convenience HTTP gateway to the cache
 func (n *Node) adminHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -100,6 +102,12 @@ func (n *Node) adminHandler() http.Handler {
 		}()
 	})
 	mux.HandleFunc("/admin/faults", n.handleFaults)
+	if n.cfg.EnablePprof {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
 	mux.HandleFunc("GET /v1/kv/{key}", n.httpGet)
 	mux.HandleFunc("PUT /v1/kv/{key}", n.httpPut)
 	mux.HandleFunc("DELETE /v1/kv/{key}", n.httpDelete)

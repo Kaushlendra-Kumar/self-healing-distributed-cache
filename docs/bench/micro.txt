@@ -1,0 +1,6 @@
+cpu: Intel(R) Xeon(R) Processor
+BenchmarkGetParallel-4     	 5372108	       233.0 ns/op	      16 B/op	       1 allocs/op
+BenchmarkApplyParallel/lru-4         	 2885838	       453.8 ns/op	     115 B/op	       2 allocs/op
+BenchmarkApplyParallel/lfu-4         	 2554652	       525.6 ns/op	     114 B/op	       2 allocs/op
+cpu: Intel(R) Xeon(R) Processor
+BenchmarkOwners-4   	10065129	       118.9 ns/op	      48 B/op	       1 allocs/op

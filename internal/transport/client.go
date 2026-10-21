@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -182,8 +183,9 @@ func (cc *clientConn) fail(err error) {
 }
 
 func (cc *clientConn) readLoop() {
+	br := bufio.NewReaderSize(cc.c, 64<<10)
 	for {
-		m, err := protocol.ReadFrame(cc.c, cc.cfg.MaxFrame)
+		m, err := protocol.ReadFrame(br, cc.cfg.MaxFrame)
 		if err != nil {
 			var de *protocol.DecodeError
 			if errors.As(err, &de) {

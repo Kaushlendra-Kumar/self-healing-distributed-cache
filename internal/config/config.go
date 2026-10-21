@@ -53,6 +53,7 @@ type Config struct {
 	RequestTimeout     time.Duration
 	RejectWhenMinority bool
 	EnableFaults       bool
+	EnablePprof        bool
 	LeaveOnShutdown    bool
 	LogLevel           string
 	LogFormat          string
@@ -222,6 +223,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	dur("SHC_REQUEST_TIMEOUT", &c.RequestTimeout)
 	boolean("SHC_REJECT_WHEN_MINORITY", &c.RejectWhenMinority)
 	boolean("SHC_ENABLE_FAULT_INJECTION", &c.EnableFaults)
+	boolean("SHC_ENABLE_PPROF", &c.EnablePprof)
 	boolean("SHC_LEAVE_ON_SHUTDOWN", &c.LeaveOnShutdown)
 	str("SHC_LOG_LEVEL", &c.LogLevel)
 	str("SHC_LOG_FORMAT", &c.LogFormat)

@@ -365,6 +365,9 @@ func (n *Node) runRecovery(reason string) {
 	}
 	if n.members.Self().Phase == membership.PhaseJoining {
 		n.members.SetSelfPhase(membership.PhaseActive)
+		// Announce immediately rather than on the next tick: until peers learn
+		// we are active they will not route to us or count our acks.
+		n.heartbeatRound()
 	}
 	n.m.recoveries.With(state).Inc()
 	n.statusMu.Lock()

@@ -1,0 +1,9 @@
+prefilling 50000 keys (128 B values)...
+failure detection: suspect after 1659 ms, dead after 4168 ms (configured 1500 / 4000 ms)
+recovery: node2 restarted empty and was ready after 2626 ms, received 53692 entries, holds 50000
+join: node4 ready after 4663 ms, received 30719 entries
+node1 entries after rebalance: 38522
+node2 entries after rebalance: 38141
+node3 entries after rebalance: 34667
+node4 entries after rebalance: 38670
+total copies: 150000 (expected ~ 50000 x 3 = 150000)

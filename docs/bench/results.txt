@@ -1,0 +1,23 @@
+== RF=3, W=2 (default)
+rf3 get c=1                       7808 ops/s  p50=  124µs p95=  163µs p99=   189µs errors=0
+rf3 get c=8                      36701 ops/s  p50=  173µs p95=  458µs p99=   819µs errors=0
+rf3 get c=32                     57615 ops/s  p50=  421µs p95= 1337µs p99=  2898µs errors=0
+rf3 set c=1                       3678 ops/s  p50=  264µs p95=  321µs p99=   374µs errors=0
+rf3 set c=8                      15132 ops/s  p50=  408µs p95= 1187µs p99=  2737µs errors=0
+rf3 set c=32                     22599 ops/s  p50= 1033µs p95= 3904µs p99=  6187µs errors=0
+rf3 delete c=8                   16054 ops/s  p50=  378µs p95= 1154µs p99=  2618µs errors=0
+rf3 mixed90/10 c=32              50021 ops/s  p50=  473µs p95= 1656µs p99=  3194µs errors=0
+rf3 set 1KiB c=16                17658 ops/s  p50=  716µs p95= 2104µs p99=  4081µs errors=0
+rf3 get 1KiB c=16                41967 ops/s  p50=  301µs p95=  869µs p99=  1516µs errors=0
+== RF=1, W=1 (no replication)
+rf1 get c=1                       8154 ops/s  p50=  117µs p95=  161µs p99=   194µs errors=0
+rf1 get c=8                      37609 ops/s  p50=  170µs p95=  458µs p99=   833µs errors=0
+rf1 get c=32                     59598 ops/s  p50=  417µs p95= 1330µs p99=  2226µs errors=0
+rf1 set c=1                       7838 ops/s  p50=  124µs p95=  165µs p99=   200µs errors=0
+rf1 set c=8                      37040 ops/s  p50=  170µs p95=  469µs p99=   885µs errors=0
+rf1 set c=32                     56882 ops/s  p50=  421µs p95= 1397µs p99=  2949µs errors=0
+rf1 delete c=8                   39473 ops/s  p50=  163µs p95=  439µs p99=   754µs errors=0
+rf1 mixed90/10 c=32              59233 ops/s  p50=  412µs p95= 1348µs p99=  2409µs errors=0
+rf1 set 1KiB c=16                39500 ops/s  p50=  318µs p95=  955µs p99=  1602µs errors=0
+rf1 get 1KiB c=16                40735 ops/s  p50=  303µs p95=  912µs p99=  1744µs errors=0
+results written to docs/bench/results.jsonl

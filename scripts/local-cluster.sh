@@ -32,11 +32,24 @@ wait_ready() {
   echo "node$1 not ready; see $RUN/node$1.log" >&2; return 1
 }
 
+wait_converged() { # every node sees every member as routable
+  for _ in $(seq 1 100); do
+    local ok=1
+    for i in $(seq 1 "$1"); do
+      curl -s "127.0.0.1:$((8000 + i))/cluster" | tr -d ' \n' | grep -q '"routable":false' && ok=0
+    done
+    [[ $ok == 1 ]] && return 0
+    sleep 0.1
+  done
+  echo "cluster did not converge" >&2; return 1
+}
+
 case "${1:-}" in
   start)
     n=${2:-3}; echo "$n" >"$N_FILE"; build
     for i in $(seq 1 "$n"); do start_node "$i" "$n"; done
     for i in $(seq 1 "$n"); do wait_ready "$i"; done
+    wait_converged "$n"
     echo "started $n nodes: data 127.0.0.1:7001-$((7000 + n)), admin 127.0.0.1:8001-$((8000 + n)); logs in $RUN/"
     ;;
   stop)
@@ -46,7 +59,7 @@ case "${1:-}" in
     kill -9 "$(cat "$RUN/node$2.pid")"; rm -f "$RUN/node$2.pid"
     ;;
   restart)
-    start_node "$2" "$(cat "$N_FILE")"; wait_ready "$2"
+    start_node "$2" "$(cat "$N_FILE")"; wait_ready "$2"; wait_converged "$(cat "$N_FILE")"
     ;;
   *)
     echo "usage: $0 start [N] | stop | kill <i> | restart <i>" >&2; exit 2

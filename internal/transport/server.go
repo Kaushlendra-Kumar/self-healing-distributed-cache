@@ -7,6 +7,7 @@
 package transport
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -126,8 +127,11 @@ func (s *Server) serveConn(c net.Conn) {
 		}
 	}
 	sem := make(chan struct{}, s.cfg.MaxInflightConn)
+	// Buffered reads turn the two read syscalls per frame (header, body) into
+	// roughly one per batch of pipelined frames (see docs/BENCHMARKS.md).
+	br := bufio.NewReaderSize(c, 64<<10)
 	for {
-		req, err := protocol.ReadFrame(c, s.cfg.MaxFrame)
+		req, err := protocol.ReadFrame(br, s.cfg.MaxFrame)
 		if err != nil {
 			var de *protocol.DecodeError
 			if errors.As(err, &de) {

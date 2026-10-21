@@ -68,17 +68,25 @@ func main() {
 
 	if *prefill && *op != "delete" {
 		var wg sync.WaitGroup
+		var prefillErrs atomic.Int64
 		next := atomic.Int64{}
 		for w := 0; w < *conc; w++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				for i := int(next.Add(1)) - 1; i < *keys; i = int(next.Add(1)) - 1 {
-					_, _ = c.Set(ctx, key(i), val, 0)
+					if _, err := c.Set(ctx, key(i), val, 0); err != nil {
+						if prefillErrs.Add(1) == 1 {
+							fmt.Fprintln(os.Stderr, "prefill error:", err)
+						}
+					}
 				}
 			}()
 		}
 		wg.Wait()
+		if n := prefillErrs.Load(); n > 0 {
+			fmt.Fprintf(os.Stderr, "warning: %d of %d prefill writes failed\n", n, *keys)
+		}
 	}
 
 	var ops, errs, hits, misses atomic.Int64
