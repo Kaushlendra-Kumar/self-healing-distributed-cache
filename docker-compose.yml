@@ -1,0 +1,63 @@
+# Local three-node cluster. Every node is a separate container (separate
+# process, separate memory, real TCP between them), but all share one Docker
+# network on one host, so this does not model multi-host failure domains.
+#
+#   docker compose up -d --build
+#   docker compose ps
+#   curl -s localhost:8001/cluster | jq
+#
+# Host ports: data plane 7001-7003, admin/metrics 8001-8003.
+x-node: &node
+  build:
+    context: .
+    args:
+      GO_IMAGE: ${GO_IMAGE:-golang:1.22-alpine}
+  image: self-healing-cache:local
+  restart: "no"
+  env_file: .env.example
+  stop_grace_period: 30s
+  healthcheck:
+    test: ["CMD", "/usr/local/bin/cachenode", "-probe", "/healthz"]
+    interval: 5s
+    timeout: 3s
+    retries: 3
+  networks: [cache]
+
+services:
+  node1:
+    <<: *node
+    hostname: node1
+    environment:
+      SHC_NODE_ID: node1
+      SHC_ADVERTISE_ADDR: node1:7000
+      SHC_ADMIN_ADVERTISE_ADDR: node1:8000
+    ports: ["7001:7000", "8001:8000"]
+
+  node2:
+    <<: *node
+    hostname: node2
+    environment:
+      SHC_NODE_ID: node2
+      SHC_ADVERTISE_ADDR: node2:7000
+      SHC_ADMIN_ADVERTISE_ADDR: node2:8000
+    ports: ["7002:7000", "8002:8000"]
+
+  node3:
+    <<: *node
+    hostname: node3
+    environment:
+      SHC_NODE_ID: node3
+      SHC_ADVERTISE_ADDR: node3:7000
+      SHC_ADMIN_ADVERTISE_ADDR: node3:8000
+    ports: ["7003:7000", "8003:8000"]
+
+  # Optional: docker compose --profile monitoring up -d
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: [monitoring]
+    volumes: ["./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+    networks: [cache]
+
+networks:
+  cache: {}

@@ -156,10 +156,6 @@ func (n *Node) coordinateWrite(req *protocol.Message, p placement) *protocol.Mes
 	for _, o := range p.routable {
 		counted[o] = true
 	}
-	type result struct {
-		id string
-		ok bool
-	}
 	var targets []string
 	for _, o := range append(append([]string{}, p.owners...), p.extras...) {
 		if o == n.cfg.NodeID {
@@ -173,7 +169,7 @@ func (n *Node) coordinateWrite(req *protocol.Message, p placement) *protocol.Mes
 	}
 	// results is buffered for every target, so replication goroutines never
 	// block even after the client has been answered.
-	results := make(chan result, len(targets))
+	results := make(chan replicaResult, len(targets))
 	rctx, cancel := context.WithTimeout(n.ctx, n.cfg.RequestTimeout)
 	var wg sync.WaitGroup
 	pendingCounted := 0
@@ -194,27 +190,14 @@ func (n *Node) coordinateWrite(req *protocol.Message, p placement) *protocol.Mes
 				n.m.replication.With("error").Inc()
 				n.log.Debug("replication failed", "rid", req.RID, "to", t, "err", err)
 			}
-			results <- result{t, ok}
+			results <- replicaResult{t, ok}
 		}(t)
 	}
 	go func() {
 		wg.Wait() // replication outlives the client request, bounded by rctx
 		cancel()
 	}()
-collect:
-	for acks < w && pendingCounted > 0 {
-		select {
-		case r := <-results:
-			if counted[r.id] {
-				pendingCounted--
-				if r.ok {
-					acks++
-				}
-			}
-		case <-rctx.Done():
-			break collect
-		}
-	}
+	acks += collectAcks(results, counted, pendingCounted, w-acks)
 	resp := protocol.OK(req)
 	if acks < w {
 		resp = protocol.Err(req, protocol.CodeQuorumFailed,
@@ -223,6 +206,35 @@ collect:
 	resp.Version = &e.Version
 	resp.Acks = acks
 	return resp
+}
+
+type replicaResult struct {
+	id string
+	ok bool
+}
+
+// collectAcks reads replication results until `needed` acknowledgements from
+// counted replicas arrived or no counted replica is still pending, and returns
+// the number of acknowledgements.
+//
+// It deliberately does not watch a context. Every replication goroutine sends
+// exactly one result and each call is bounded by the request timeout, so the
+// loop always ends. An earlier version also selected on the replication
+// context, which is cancelled as soon as the last call returns; select then
+// chose randomly between that and acks already buffered, and occasionally
+// reported a quorum failure on a healthy cluster.
+func collectAcks(results <-chan replicaResult, counted map[string]bool, pending, needed int) int {
+	acks := 0
+	for acks < needed && pending > 0 {
+		r := <-results
+		if counted[r.id] {
+			pending--
+			if r.ok {
+				acks++
+			}
+		}
+	}
+	return acks
 }
 
 func (n *Node) handleReplicate(req *protocol.Message) *protocol.Message {

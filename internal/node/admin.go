@@ -143,7 +143,6 @@ func (n *Node) handleFaults(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, n.faults.Snapshot())
 }
 
-
 func httpStatus(resp *protocol.Message) int {
 	if resp.Status == protocol.StatusOK {
 		return http.StatusOK

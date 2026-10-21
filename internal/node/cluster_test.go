@@ -540,3 +540,50 @@ func TestJoinSurvivesSourceCrashMidSync(t *testing.T) {
 		}
 	}
 }
+
+// Regression test: the coordinator once raced its own context cancellation
+// against buffered acknowledgements and occasionally reported quorum_failed
+// on a healthy cluster (found by the benchmark, roughly 1 in 50k writes).
+// collectAcks must count acknowledgements that are already buffered.
+func TestCollectAcksCountsBufferedResults(t *testing.T) {
+	counted := map[string]bool{"a": true, "b": true}
+	for i := 0; i < 1000; i++ {
+		ch := make(chan replicaResult, 3)
+		ch <- replicaResult{"x", true} // a future owner: not counted
+		ch <- replicaResult{"a", false}
+		ch <- replicaResult{"b", true}
+		if got := collectAcks(ch, counted, 2, 2); got != 1 {
+			t.Fatalf("got %d acks, want 1", got)
+		}
+	}
+	ch := make(chan replicaResult, 2)
+	ch <- replicaResult{"a", true}
+	ch <- replicaResult{"b", true}
+	if got := collectAcks(ch, counted, 2, 1); got != 1 || len(ch) != 1 {
+		t.Fatal("must stop as soon as the quorum is reached")
+	}
+}
+
+func TestHealthyClusterNeverReportsQuorumFailure(t *testing.T) {
+	c := newCluster(t, 3, nil)
+	cl := c.client()
+	var wg sync.WaitGroup
+	errs := make(chan error, 16)
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 1500; i++ {
+				if _, err := cl.Set(context.Background(), fmt.Sprint("k", (g*1500+i)%3000), []byte("v"), 0); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("healthy cluster rejected a write: %v", err)
+	}
+}

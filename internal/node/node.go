@@ -67,8 +67,8 @@ type Node struct {
 
 	rebalanceMu sync.Mutex
 	statusMu    sync.Mutex
-	recovery  RecoveryStatus
-	rebalance RebalanceStatus
+	recovery    RecoveryStatus
+	rebalance   RebalanceStatus
 }
 
 // Options carries dependencies that are not plain configuration.
@@ -372,3 +372,6 @@ func (n *Node) handleMembers(req *protocol.Message) *protocol.Message {
 	resp.From = n.cfg.NodeID
 	return resp
 }
+
+// Done is closed when the node has begun shutting down.
+func (n *Node) Done() <-chan struct{} { return n.ctx.Done() }
