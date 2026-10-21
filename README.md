@@ -129,7 +129,6 @@ docs/             design docs + ADRs    internal/metrics     Prometheus expositi
 | [BENCHMARKS](docs/BENCHMARKS.md) | Methodology, results, profile, bottlenecks |
 | [OPERATIONS](docs/OPERATIONS.md) | Configuration and troubleshooting runbooks |
 | [DEPLOYMENT](docs/DEPLOYMENT.md) | Cloud deployment guide, including free hosting options |
-| [LEARNING_GUIDE](docs/LEARNING_GUIDE.md) | Concept roadmap, exercises, interview explanations |
 | [ROADMAP](docs/ROADMAP.md) | MVP → advanced → stretch, and what is next |
 | [ADR](docs/ADR) | Architecture decision records |
 

@@ -6,3 +6,6 @@ coverage.*
 .env
 /internal/protocol/testdata/fuzz/
 .run/
+
+# Personal notes and learning material (kept local, never pushed)
+/my-notes/
